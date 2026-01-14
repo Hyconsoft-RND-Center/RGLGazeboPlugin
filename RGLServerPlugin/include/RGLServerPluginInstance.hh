@@ -86,15 +86,26 @@ private:
     int scanHSamples;
     std::vector<rgl_mat3x4f> lidarPattern;
     std::size_t alternatingPatternIndex = 0;
+    int scanWidth = 0;
+    int scanHeight = 0;
 
     struct ResultPointCloud
     {
         std::vector<char> data{};
         int32_t hitPointCount{};
-        static constexpr std::size_t pointSize{sizeof(rgl_vec3f) + sizeof(float)};  // Based on rglFields
+        // New fields sizes:
+        // XYZ: 3 * float (12)
+        // Intensity: float (4)
+        // Distance: float (4)
+        // RayIdx: uint32 (4)
+        // Timestamp: double (8)
+        static constexpr std::size_t pointSize{sizeof(rgl_vec3f) + sizeof(float) + sizeof(float) + sizeof(uint32_t) + sizeof(double)};
         inline static const std::vector<rgl_field_t> rglFields = {
                 RGL_FIELD_XYZ_VEC3_F32,
-                RGL_FIELD_LASER_RETRO_F32
+                RGL_FIELD_LASER_RETRO_F32,
+                RGL_FIELD_DISTANCE_F32,
+                RGL_FIELD_RAY_IDX_U32,     // Corresponds to 'ring'
+                RGL_FIELD_TIME_STAMP_F64   // Corresponds to 't'
         };
     } resultPointCloud{};
 

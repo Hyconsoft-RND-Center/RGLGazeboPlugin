@@ -51,6 +51,12 @@ void RGLServerPluginManager::PostUpdate(
         const ignition::gazebo::UpdateInfo& info,
         const ignition::gazebo::EntityComponentManager& ecm)
 {
+    // Update RGL scene time
+    uint64_t timeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(info.simTime).count();
+    if (!CheckRGL(rgl_scene_set_time(nullptr, timeNs))) {
+         ignerr << "Failed to set RGL scene time.\n";
+    }
+
     ecm.EachNew<>
             ([this, &ecm](auto&& entity) {
                 return RegisterNewLidarCb(entity, ecm);

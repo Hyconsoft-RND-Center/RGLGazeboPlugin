@@ -73,7 +73,7 @@ bool RGLServerPluginInstance::LoadConfiguration(const std::shared_ptr<const sdf:
     topicName = sdf->Get<std::string>(PARAM_TOPIC_ID);
     frameId = sdf->Get<std::string>(PARAM_FRAME_ID);
 
-    if (!LidarPatternLoader::Load(sdf, lidarPattern, lidarPatternSampleSize)) {
+    if (!LidarPatternLoader::Load(sdf, lidarPattern, lidarPatternSampleSize, scanWidth, scanHeight)) {
         return false;
     }
 
@@ -321,15 +321,75 @@ ignition::msgs::PointCloudPacked RGLServerPluginInstance::CreatePointCloudMsg(st
     ignition::msgs::PointCloudPacked outMsg;
     ignition::msgs::InitPointCloudPacked(outMsg, frame, false,
                                          {{"xyz", ignition::msgs::PointCloudPacked::Field::FLOAT32},
-                                          {"intensity",ignition::msgs::PointCloudPacked::Field::FLOAT32}});
+                                          {"intensity",ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"ring", ignition::msgs::PointCloudPacked::Field::UINT16},
+                                          {"t", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"reflectivity", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"ambient", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"range", ignition::msgs::PointCloudPacked::Field::FLOAT32}});
     outMsg.mutable_data()->resize(resultPointCloud.hitPointCount * outMsg.point_step());
     *outMsg.mutable_header()->mutable_stamp() = ignition::msgs::Convert(simTime);
-    outMsg.set_height(1);
-    outMsg.set_width(resultPointCloud.hitPointCount);
+    outMsg.set_height(scanHeight);
+    outMsg.set_width(scanWidth);
     outMsg.set_row_step(resultPointCloud.hitPointCount * outMsg.point_step());
 
+    // Iterators for each field
     ignition::msgs::PointCloudPackedIterator<float> xIter(outMsg, "x");
-    memcpy(&(*xIter), resultPointCloud.data.data(), resultPointCloud.hitPointCount * resultPointCloud.pointSize);
+    ignition::msgs::PointCloudPackedIterator<float> yIter(outMsg, "y");
+    ignition::msgs::PointCloudPackedIterator<float> zIter(outMsg, "z");
+    ignition::msgs::PointCloudPackedIterator<float> intensityIter(outMsg, "intensity");
+    ignition::msgs::PointCloudPackedIterator<uint16_t> ringIter(outMsg, "ring");
+    ignition::msgs::PointCloudPackedIterator<float> tIter(outMsg, "t");
+    ignition::msgs::PointCloudPackedIterator<float> reflectivityIter(outMsg, "reflectivity");
+    ignition::msgs::PointCloudPackedIterator<float> ambientIter(outMsg, "ambient");
+    ignition::msgs::PointCloudPackedIterator<float> rangeIter(outMsg, "range");
+
+    // Offsets in RGL result buffer
+    // Layout: XYZ (12 bytes) | Intensity (4 bytes) | Distance (4 bytes) | RayIdx (4 bytes) | Timestamp (8 bytes)
+    size_t offsetXYZ = 0;
+    size_t offsetIntensity = sizeof(rgl_vec3f);
+    size_t offsetDistance = offsetIntensity + sizeof(float);
+    size_t offsetRayIdx = offsetDistance + sizeof(float);
+    size_t offsetTimestamp = offsetRayIdx + sizeof(uint32_t);
+
+    const char* dataPtr = resultPointCloud.data.data();
+
+    for (int32_t i = 0; i < resultPointCloud.hitPointCount; ++i)
+    {
+        const char* pointPtr = dataPtr + (i * resultPointCloud.pointSize);
+
+        // XYZ
+        auto xyz = reinterpret_cast<const rgl_vec3f*>(pointPtr + offsetXYZ);
+        *xIter = xyz->value[0];
+        *yIter = xyz->value[1];
+        *zIter = xyz->value[2];
+
+        // Intensity
+        *intensityIter = *reinterpret_cast<const float*>(pointPtr + offsetIntensity);
+
+        // Range
+        *rangeIter = *reinterpret_cast<const float*>(pointPtr + offsetDistance);
+
+        // Ring (RayIdx) - cast from U32 to U16
+        *ringIter = static_cast<uint16_t>(*reinterpret_cast<const uint32_t*>(pointPtr + offsetRayIdx));
+
+        // Timestamp - cast from F64 to F32
+        *tIter = static_cast<float>(*reinterpret_cast<const double*>(pointPtr + offsetTimestamp));
+
+        // Fake data
+        *reflectivityIter = 0.0f;
+        *ambientIter = 0.0f;
+
+        // Increment iterators
+        ++xIter; ++yIter; ++zIter;
+        ++intensityIter;
+        ++ringIter;
+        ++tIter;
+        ++reflectivityIter;
+        ++ambientIter;
+        ++rangeIter;
+    }
+
     return outMsg;
 }
 
