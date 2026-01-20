@@ -319,14 +319,21 @@ ignition::msgs::LaserScan RGLServerPluginInstance::CreateLaserScanMsg(std::chron
 ignition::msgs::PointCloudPacked RGLServerPluginInstance::CreatePointCloudMsg(std::chrono::steady_clock::duration simTime, const std::string& frame)
 {
     ignition::msgs::PointCloudPacked outMsg;
+    // Match Real Ouster Layout:
+    // x(0), y(4), z(8), padding1(12, 4B), intensity(16), t(20), reflectivity(24), ring(26), ambient(28), padding2(30, 2B), range(32)
     ignition::msgs::InitPointCloudPacked(outMsg, frame, false,
-                                         {{"xyz", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                         {{"x", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"y", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"z", ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"padding1", ignition::msgs::PointCloudPacked::Field::UINT32},
                                           {"intensity",ignition::msgs::PointCloudPacked::Field::FLOAT32},
+                                          {"t", ignition::msgs::PointCloudPacked::Field::UINT32},
+                                          {"reflectivity", ignition::msgs::PointCloudPacked::Field::UINT16},
                                           {"ring", ignition::msgs::PointCloudPacked::Field::UINT16},
-                                          {"t", ignition::msgs::PointCloudPacked::Field::FLOAT32},
-                                          {"reflectivity", ignition::msgs::PointCloudPacked::Field::FLOAT32},
-                                          {"ambient", ignition::msgs::PointCloudPacked::Field::FLOAT32},
-                                          {"range", ignition::msgs::PointCloudPacked::Field::FLOAT32}});
+                                          {"ambient", ignition::msgs::PointCloudPacked::Field::UINT16},
+                                          {"padding2", ignition::msgs::PointCloudPacked::Field::UINT16},
+                                          {"range", ignition::msgs::PointCloudPacked::Field::UINT32}});
+    
     outMsg.mutable_data()->resize(resultPointCloud.hitPointCount * outMsg.point_step());
     *outMsg.mutable_header()->mutable_stamp() = ignition::msgs::Convert(simTime);
     outMsg.set_height(scanHeight);
@@ -337,12 +344,14 @@ ignition::msgs::PointCloudPacked RGLServerPluginInstance::CreatePointCloudMsg(st
     ignition::msgs::PointCloudPackedIterator<float> xIter(outMsg, "x");
     ignition::msgs::PointCloudPackedIterator<float> yIter(outMsg, "y");
     ignition::msgs::PointCloudPackedIterator<float> zIter(outMsg, "z");
+    ignition::msgs::PointCloudPackedIterator<uint32_t> padding1Iter(outMsg, "padding1");
     ignition::msgs::PointCloudPackedIterator<float> intensityIter(outMsg, "intensity");
+    ignition::msgs::PointCloudPackedIterator<uint32_t> tIter(outMsg, "t");
+    ignition::msgs::PointCloudPackedIterator<uint16_t> reflectivityIter(outMsg, "reflectivity");
     ignition::msgs::PointCloudPackedIterator<uint16_t> ringIter(outMsg, "ring");
-    ignition::msgs::PointCloudPackedIterator<float> tIter(outMsg, "t");
-    ignition::msgs::PointCloudPackedIterator<float> reflectivityIter(outMsg, "reflectivity");
-    ignition::msgs::PointCloudPackedIterator<float> ambientIter(outMsg, "ambient");
-    ignition::msgs::PointCloudPackedIterator<float> rangeIter(outMsg, "range");
+    ignition::msgs::PointCloudPackedIterator<uint16_t> ambientIter(outMsg, "ambient");
+    ignition::msgs::PointCloudPackedIterator<uint16_t> padding2Iter(outMsg, "padding2");
+    ignition::msgs::PointCloudPackedIterator<uint32_t> rangeIter(outMsg, "range");
 
     // Offsets in RGL result buffer
     // Layout: XYZ (12 bytes) | Intensity (4 bytes) | Distance (4 bytes) | RayIdx (4 bytes) | Timestamp (8 bytes)
@@ -364,29 +373,53 @@ ignition::msgs::PointCloudPacked RGLServerPluginInstance::CreatePointCloudMsg(st
         *yIter = xyz->value[1];
         *zIter = xyz->value[2];
 
+        // Padding1
+        *padding1Iter = 0;
+
         // Intensity
         *intensityIter = *reinterpret_cast<const float*>(pointPtr + offsetIntensity);
 
-        // Range
-        *rangeIter = *reinterpret_cast<const float*>(pointPtr + offsetDistance);
+        // Range (m -> mm for uint32)
+        float rangeVal = *reinterpret_cast<const float*>(pointPtr + offsetDistance);
+        *rangeIter = static_cast<uint32_t>(rangeVal * 1000.0f);
 
-        // Ring (RayIdx) - cast from U32 to U16
-        *ringIter = static_cast<uint16_t>(*reinterpret_cast<const uint32_t*>(pointPtr + offsetRayIdx));
+        // Ring (RayIdx) - cast from U32 to U16. 
+        // FIX: The raw RayIdx is the global index. We need the row index (0..31) for FAST-LIO.
+        // Assuming row-major order (Ring 0 all points, Ring 1 all points...)
+        uint32_t rayIdx = *reinterpret_cast<const uint32_t*>(pointPtr + offsetRayIdx);
+        *ringIter = static_cast<uint16_t>(rayIdx / scanWidth);
 
-        // Timestamp - cast from F64 to F32
-        *tIter = static_cast<float>(*reinterpret_cast<const double*>(pointPtr + offsetTimestamp));
+        // Synthetic Timestamp calculation
+        // Real Ouster rotates, so time depends on horizontal angle (column).
+        // RGL provides 'instant' snapshot, so we fake the time distribution.
+        
+        // Synthetic Timestamp calculation
+        // Real Ouster rotates, so time depends on horizontal angle (column).
+        // RGL provides 'instant' snapshot, so we fake the time distribution.
+        
+        double scanPeriod = std::chrono::duration<double>(raytraceIntervalTime).count();
+        uint32_t colIdx = rayIdx % scanWidth; // 0..1023 assuming 1024 width
+        double timePerCol = scanPeriod / static_cast<double>(scanWidth);
+        
+        // Output in nanoseconds
+        *tIter = static_cast<uint32_t>(colIdx * timePerCol * 1e9); 
 
         // Fake data
-        *reflectivityIter = 0.0f;
-        *ambientIter = 0.0f;
+        *reflectivityIter = 0;
+        *ambientIter = 0;
+        
+        // Padding2
+        *padding2Iter = 0;
 
         // Increment iterators
         ++xIter; ++yIter; ++zIter;
+        ++padding1Iter;
         ++intensityIter;
-        ++ringIter;
         ++tIter;
         ++reflectivityIter;
+        ++ringIter;
         ++ambientIter;
+        ++padding2Iter;
         ++rangeIter;
     }
 

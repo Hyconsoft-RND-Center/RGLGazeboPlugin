@@ -17,96 +17,68 @@ Key features:
 - Multiple LiDAR pattern configuration methods, including importing a pattern from a binary file
 - Realistic presets of the most popular LiDARs
 
-This fork is modified the message of the RGLServerPluginInstance to include the more message fields.
-
-## Changes
-
-The plugin utilizes the Robotec GPU Lidar (RGL) library to generate raw data. The 
-RGLServerPluginInstance
- configures RGL to output specific fi4elds, which are then formatted into the ROS 2 message.
-
-Field Details
-
-1. range (Distance)
-Data Type: FLOAT32
-Source: RGL Library
-RGL Field: RGL_FIELD_DISTANCE_F32
-Description: Represents the Euclidean distance from the sensor origin to the hit point.
-Implementation: Directly retrieved from the RGL result buffer without modification.
-
-2. intensity
-Data Type: FLOAT32 (ROS standard)
-Source: RGL Library / SDF Configuration
-RGL Field: RGL_FIELD_LASER_RETRO_F32
-Description: Represents the return intensity of the laser pulse. This value is derived from the laser_retro property of the visual material in Gazebo/Ignition.
-Implementation: Directly retrieved from RGL.
-
-3. ring (Laser Index)
-Data Type: UINT16
-Source: RGL Library
-RGL Field: RGL_FIELD_RAY_IDX_U32
-Description: The index of the laser emitter (channel) that generated the point. For a 32-channel LiDAR, this ranges from 0 to 31.
-Implementation: RGL returns this as a uint32_t. It is cast to uint16_t for the ROS message.
-*ringIter = static_cast<uint16_t>(*reinterpret_cast<const uint32_t*>(pointPtr + offsetRayIdx));
-
-4. t (Timestamp)
-Data Type: FLOAT32
-Source: RGL Library
-RGL Field: RGL_FIELD_TIME_STAMP_F64
-Description: The precise time of the laser firing relative to the start of the scan frame.
-Implementation:
-The Gazebo simulation time is passed to the RGL scene in RGLServerPluginManager::PostUpdate.
-RGL calculates the hit time for each ray.
-The value is retrieved as double (F64) and cast to float (F32) for the message.
-*tIter = static_cast<float>(*reinterpret_cast<const double*>(pointPtr + offsetTimestamp));
-
-5. reflectivity
-Data Type: FLOAT32
-Source: Synthetic / Fake Data
-Description: Placeholder field required by the user's data format but not currently simulated by RGL.
-Implementation: Hardcoded to 0.0.
-*reflectivityIter = 0.0f;
-
-6. ambient
-Data Type: FLOAT32
-Source: Synthetic / Fake Data
-Description: Placeholder field representing ambient light, not simulated.
-Implementation: Hardcoded to 0.0.
-*ambientIter = 0.0f;
-
-7. x, y, z (Coordinates)
-Data Type: FLOAT32
-Source: RGL Library
-RGL Field: RGL_FIELD_XYZ_VEC3_F32
-Description: Cartesian coordinates of the hit point in the sensor frame.
-Implementation: Copied directly from the RGL vector.
-
 ## Requirements:
 
-- OS: [Ubuntu 22.04](https://releases.ubuntu.com/jammy/)
+- OS: [Ubuntu 20.04](https://releases.ubuntu.com/focal/) or [Ubuntu 22.04](https://releases.ubuntu.com/jammy/)
 
 - Gazebo: [Fortress](https://gazebosim.org/docs/fortress/install)
 
-- GPU: CUDA-enabled (We tested on NVIDIA GeForce RTX 4090)
+- GPU: CUDA-enabled
 
-- Nvidia Driver: [See RGL requirements](https://github.com/RobotecAI/RobotecGPULidar/tree/v0.20.0#runtime-requirements) (We tested on 535.121.02)
+- Nvidia Driver: [See RGL requirements](https://github.com/RobotecAI/RobotecGPULidar/tree/v0.20.0#runtime-requirements)
 
 ## Installation:
 
+### Using pre-built libraries
+1. Download libraries from [release](https://github.com/RobotecAI/RGLGazeboPlugin/releases).
+2. Make RGL plugins visible to Gazebo:
+    - Move libraries to the plugin's directories.
+    ```shell
+    # If Gazebo installed from apt:
+    cp libRobotecGPULidar.so /usr/lib/x86_64-linux-gnu/ign-gazebo-6/plugins/
+    cp libRGLServerPluginInstance.so /usr/lib/x86_64-linux-gnu/ign-gazebo-6/plugins/
+    cp libRGLServerPluginManager.so /usr/lib/x86_64-linux-gnu/ign-gazebo-6/plugins/
+    cp libRGLVisualize.so /usr/lib/x86_64-linux-gnu/ign-gazebo-6/plugins/gui/
+    ```
+    - Or set environment variables:
+    ```shell
+    # Assuming that system plugin libraries are located in RGLServerPlugin directory,
+    # and gui plugins (libRGLVisualize.so) in RGLVisualize.
+    export IGN_GAZEBO_SYSTEM_PLUGIN_PATH=`pwd`/RGLServerPlugin:$IGN_GAZEBO_SYSTEM_PLUGIN_PATH
+    export IGN_GUI_PLUGIN_PATH=`pwd`/RGLVisualize:$IGN_GUI_PLUGIN_PATH
+    ```
 ### Building from source
 
+#### Docker
+```shell
+docker build \
+   --target=exporter \
+   --output=install .
+```
+*Note: Build with [ROS Iron](https://docs.ros.org/en/iron/index.html) using [colcon](https://colcon.readthedocs.io/en/released/)*
+
 #### Manual
-
-```bash
-mkdir rgl_ws && cd rgl_ws
-git clone git@github.com:Hyconsoft-RND-Center/RGLGazeboPlugin.git
-
+```shell
 mkdir build && cd build
 cmake .. && make -j && make install
 cd ..
 # Make it visible to Gazebo via environment variables:
 export IGN_GAZEBO_SYSTEM_PLUGIN_PATH=`pwd`/install/RGLServerPlugin:$IGN_GAZEBO_SYSTEM_PLUGIN_PATH
 export IGN_GUI_PLUGIN_PATH=`pwd`/install/RGLVisualize:$IGN_GUI_PLUGIN_PATH
+```
+
+#### Using custom build of RobotecGPULidar
+
+By default, the `RGLGazebPlugin` downloads `RobotecGPULidar` binaries from [the official release](https://github.com/RobotecAI/RobotecGPULidar/releases). To use your own build of `RobotecGPULidar`, set the following CMake variables when configuring the project:
+```shell
+# RGL_CUSTOM_LIBRARY_PATH - Path to the custom RobotecGPULidar library build
+# RGL_CUSTOM_API_HEADER_PATH - Path to the include directory with API headers compatible with the custom library build
+#                              (`include` directory of `RobotecGPULidar` project)
+# Example:
+cmake \
+  -DRGL_CUSTOM_LIBRARY_PATH="$HOME/RobotecGPULidar/build/lib/libRobotecGPULidar.so" \
+  -DRGL_CUSTOM_API_HEADER_PATH="$HOME/RobotecGPULidar/include" \
+  ..
 ```
 
 ## Demo:
