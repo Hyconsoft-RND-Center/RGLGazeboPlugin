@@ -28,9 +28,9 @@ set_target_properties(RGLServerPluginInstance PROPERTIES INSTALL_RPATH "$ORIGIN"
 ## Install libraries
 
 install(TARGETS RGLServerPluginInstance RGLServerPluginManager
-    DESTINATION RGLServerPlugin
+    DESTINATION lib/${PROJECT_NAME}
 )
 # RobotecGPULidar needs to be installed manually as it is a dependent shared library
 install(IMPORTED_RUNTIME_ARTIFACTS RobotecGPULidar
-    DESTINATION RGLServerPlugin
+    DESTINATION lib/${PROJECT_NAME}
 )
