@@ -31,5 +31,5 @@ target_link_libraries(RGLVisualize
 ## Install libraries
 
 install(TARGETS RGLVisualize
-    DESTINATION lib/${PROJECT_NAME}
+    DESTINATION lib/RGLGazeboPlugin
 )
