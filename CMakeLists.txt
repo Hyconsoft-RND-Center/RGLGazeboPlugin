@@ -13,5 +13,8 @@ add_subdirectory(RGLVisualize)
 
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env_hooks/rgl_gazebo_plugin.dsv.in")
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env_hooks/rgl_gui_plugin.dsv.in")
+ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env_hooks/rgl_patterns.dsv.in")
+
+install(DIRECTORY lidar_patterns DESTINATION share/${PROJECT_NAME})
 
 ament_package()
