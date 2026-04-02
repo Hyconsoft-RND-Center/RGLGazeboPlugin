@@ -336,8 +336,8 @@ ignition::msgs::PointCloudPacked RGLServerPluginInstance::CreatePointCloudMsg(st
     
     outMsg.mutable_data()->resize(resultPointCloud.hitPointCount * outMsg.point_step());
     *outMsg.mutable_header()->mutable_stamp() = ignition::msgs::Convert(simTime);
-    outMsg.set_height(scanHeight);
-    outMsg.set_width(scanWidth);
+    outMsg.set_height(1);
+    outMsg.set_width(resultPointCloud.hitPointCount);
     outMsg.set_row_step(outMsg.width() * outMsg.point_step());
 
     // Iterators for each field
